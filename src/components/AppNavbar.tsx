@@ -2,8 +2,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { GraduationCap, LayoutDashboard, LogOut, Shield } from "lucide-react";
+import { memo } from "react";
 
-export function AppNavbar() {
+export const AppNavbar = memo(function AppNavbar() {
   const { user, isAdmin, signOut } = useAuth();
   const navigate = useNavigate();
 
@@ -44,4 +45,5 @@ export function AppNavbar() {
       </div>
     </header>
   );
-}
+});
+

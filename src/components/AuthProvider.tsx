@@ -1,12 +1,12 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
 
 type AuthContextType = ReturnType<typeof useAuth>;
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const auth = useAuth();
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const auth = useAuth(); // ← se ejecuta UNA sola vez global
   return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
 }
 

@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuthContext } from "@/components/AuthProvider";
 import { Loader2 } from "lucide-react";
 
 interface RequireAuthProps {
@@ -8,7 +8,7 @@ interface RequireAuthProps {
 }
 
 export function RequireAuth({ children, requireAdmin = false }: RequireAuthProps) {
-  const { user, profile, isAdmin, loading } = useAuth();
+  const { user, profile, isAdmin, loading } = useAuthContext(); // 🔥 USAR CONTEXTO
   const location = useLocation();
 
   if (loading) {
@@ -23,12 +23,12 @@ export function RequireAuth({ children, requireAdmin = false }: RequireAuthProps
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Si requiere admin y no es admin
+  // Admin guard
   if (requireAdmin && !isAdmin) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  // Control de expiración para no-admins
+  // Expiración suscripción
   if (!isAdmin && profile?.access_expires_at) {
     const expired = new Date(profile.access_expires_at) < new Date();
     if (expired) {
@@ -38,4 +38,5 @@ export function RequireAuth({ children, requireAdmin = false }: RequireAuthProps
 
   return <>{children}</>;
 }
+
 

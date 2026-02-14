@@ -14,6 +14,11 @@ export interface AuthState {
   loading: boolean;
 }
 
+// 🔥 Cache REAL persistente entre renders
+let profileCache: Record<string, AuthState["profile"]> = {};
+let roleCache: Record<string, boolean> = {};
+let inFlight: Record<string, Promise<{ profile: AuthState["profile"]; isAdmin: boolean }>> = {};
+
 export function useAuth() {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -26,27 +31,47 @@ export function useAuth() {
   const mountedRef = useRef(true);
 
   const fetchProfile = useCallback(async (userId: string) => {
-    try {
-      const [profileRes, roleRes] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("email, full_name, access_expires_at")
-          .eq("id", userId)
-          .single(),
-        supabase.rpc("has_role", {
-          _user_id: userId,
-          _role: "admin" as const,
-        }),
-      ]);
+    // 🔥 Evita múltiples requests simultáneos
+    if (inFlight[userId]) return inFlight[userId];
 
+    // 🔥 Cache por usuario
+    if (profileCache[userId] !== undefined) {
       return {
-        profile: profileRes.data ?? null,
-        isAdmin: roleRes.data === true,
+        profile: profileCache[userId],
+        isAdmin: roleCache[userId] ?? false,
       };
-    } catch (error) {
-      console.error("Error fetching profile:", error);
-      return { profile: null, isAdmin: false };
     }
+
+    inFlight[userId] = (async () => {
+      try {
+        const [profileRes, roleRes] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("email, full_name, access_expires_at")
+            .eq("id", userId)
+            .single(),
+          supabase.rpc("has_role", {
+            _user_id: userId,
+            _role: "admin" as const,
+          }),
+        ]);
+
+        const profile = profileRes.data ?? null;
+        const isAdmin = roleRes.data === true;
+
+        profileCache[userId] = profile;
+        roleCache[userId] = isAdmin;
+
+        return { profile, isAdmin };
+      } catch (error) {
+        console.error("Error fetching profile:", error);
+        return { profile: null, isAdmin: false };
+      } finally {
+        delete inFlight[userId];
+      }
+    })();
+
+    return inFlight[userId];
   }, []);
 
   useEffect(() => {
@@ -56,7 +81,8 @@ export function useAuth() {
       if (!mountedRef.current) return;
 
       if (session?.user) {
-        // Estado base primero
+        const userId = session.user.id;
+
         setState(prev => ({
           ...prev,
           user: session.user,
@@ -64,7 +90,7 @@ export function useAuth() {
           loading: true,
         }));
 
-        const { profile, isAdmin } = await fetchProfile(session.user.id);
+        const { profile, isAdmin } = await fetchProfile(userId);
 
         if (!mountedRef.current) return;
 
@@ -86,12 +112,11 @@ export function useAuth() {
       }
     };
 
-    // Restaurar sesión inicial (IMPORTANTE para refresh)
+    // 🔥 Solo se ejecuta una vez al montar
     supabase.auth.getSession().then(({ data: { session } }) => {
       handleSession(session);
     });
 
-    // Escuchar cambios
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -105,9 +130,14 @@ export function useAuth() {
   }, [fetchProfile]);
 
   const signOut = useCallback(async () => {
+    profileCache = {};
+    roleCache = {};
+    inFlight = {};
     await supabase.auth.signOut();
   }, []);
 
   return { ...state, signOut };
 }
+
+
 
