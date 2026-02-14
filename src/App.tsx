@@ -4,11 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { RequireAuth } from "@/components/RequireAuth";
-<<<<<<< HEAD
-=======
 import { AuthProvider } from "@/components/AuthProvider";
 
->>>>>>> 29c90d1 (primer commit)
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import CoursePlayer from "./pages/CoursePlayer";
@@ -23,31 +20,6 @@ const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-<<<<<<< HEAD
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/subscription-expired" element={<SubscriptionExpired />} />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
-          <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
-          <Route path="/course/:slug/learn" element={<RequireAuth><CoursePlayer /></RequireAuth>} />
-
-          <Route path="/admin" element={<RequireAuth requireAdmin><AdminLayout /></RequireAuth>}>
-            <Route index element={<Navigate to="students" replace />} />
-            <Route path="students" element={<StudentsPage />} />
-            <Route path="courses" element={<CoursesPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-          </Route>
-
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-=======
     <AuthProvider>
       <TooltipProvider>
         <Toaster />
@@ -58,10 +30,32 @@ const App = () => (
             <Route path="/subscription-expired" element={<SubscriptionExpired />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-            <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
-            <Route path="/course/:slug/learn" element={<RequireAuth><CoursePlayer /></RequireAuth>} />
+            <Route
+              path="/dashboard"
+              element={
+                <RequireAuth>
+                  <Dashboard />
+                </RequireAuth>
+              }
+            />
 
-            <Route path="/admin" element={<RequireAuth requireAdmin><AdminLayout /></RequireAuth>}>
+            <Route
+              path="/course/:slug/learn"
+              element={
+                <RequireAuth>
+                  <CoursePlayer />
+                </RequireAuth>
+              }
+            />
+
+            <Route
+              path="/admin"
+              element={
+                <RequireAuth requireAdmin>
+                  <AdminLayout />
+                </RequireAuth>
+              }
+            >
               <Route index element={<Navigate to="students" replace />} />
               <Route path="students" element={<StudentsPage />} />
               <Route path="courses" element={<CoursesPage />} />
@@ -73,12 +67,8 @@ const App = () => (
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>
->>>>>>> 29c90d1 (primer commit)
   </QueryClientProvider>
 );
 
 export default App;
-<<<<<<< HEAD
-=======
 
->>>>>>> 29c90d1 (primer commit)
