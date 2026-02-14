@@ -7,6 +7,14 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+<<<<<<< HEAD
+=======
+# Env
+.env
+.env.local
+.env.*.local
+
+>>>>>>> 29c90d1 (primer commit)
 node_modules
 dist
 dist-ssr
@@ -22,3 +30,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+<<<<<<< HEAD
+=======
+
+>>>>>>> 29c90d1 (primer commit)
