@@ -1,172 +1,109 @@
-import { useMemo } from "react";
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppNavbar } from "@/components/AppNavbar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Link } from "react-router-dom";
-import { BookOpen } from "lucide-react";
-import { Progress } from "@/components/ui/progress";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-
-type Course = {
-  id: string;
-  slug: string;
-  title: string;
-  description: string | null;
-  thumbnail_url: string | null;
-  created_at: string;
-};
+import { differenceInDays } from "date-fns";
+import Aurora from "@/components/Aurora"; // Importación de Aurora
+import MagicBento from "@/components/MagicBento"; // Tu nuevo componente TSX
+import "@/components/MagicBento.css"; // Tu nuevo CSS
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { profile } = useAuth();
+  const navigate = useNavigate();
 
-  // Cursos
-  const { data: courses = [], isLoading: coursesLoading } = useQuery<Course[]>({
+  useEffect(() => {
+    if (profile?.access_expires_at) {
+      const expired = new Date(profile.access_expires_at) < new Date();
+      if (expired) navigate("/subscription-expired");
+    }
+  }, [profile, navigate]);
+
+  const daysLeft = profile?.access_expires_at
+    ? differenceInDays(new Date(profile.access_expires_at), new Date())
+    : null;
+
+  const { data: courses = [], isLoading } = useQuery({
     queryKey: ["courses"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("courses")
         .select("*")
-        .order("created_at", { ascending: false });
-
+        .eq("is_published", true);
       if (error) throw error;
-      return data as Course[];
+      return data;
     },
-    staleTime: 1000 * 60 * 5, // 5 min cache
-    refetchOnWindowFocus: false,
   });
-
-  // Progreso del usuario
-  const { data: progressMap } = useQuery<Record<string, boolean>>({
-    queryKey: ["all-progress", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("user_progress")
-        .select("lesson_id, is_completed")
-        .eq("user_id", user!.id);
-
-      if (error) throw error;
-
-      const map: Record<string, boolean> = {};
-      data?.forEach((p) => {
-        map[p.lesson_id] = p.is_completed;
-      });
-      return map;
-    },
-    staleTime: 1000 * 60 * 2,
-    refetchOnWindowFocus: false,
-  });
-
-  // Lecciones por curso
-  const { data: lessonCounts } = useQuery<Record<string, string[]>>({
-    queryKey: ["lesson-counts"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("lessons")
-        .select("id, modules!inner(course_id)");
-
-      if (error) throw error;
-
-      const counts: Record<string, string[]> = {};
-      data?.forEach((l: any) => {
-        const cid = l.modules.course_id;
-        if (!counts[cid]) counts[cid] = [];
-        counts[cid].push(l.id);
-      });
-
-      return counts;
-    },
-    staleTime: 1000 * 60 * 10,
-    refetchOnWindowFocus: false,
-  });
-
-  // Memo para evitar recalcular progreso en cada render
-  const progressByCourse = useMemo(() => {
-    if (!lessonCounts || !progressMap) return {};
-
-    const map: Record<string, number> = {};
-
-    Object.entries(lessonCounts).forEach(([courseId, lessons]) => {
-      const completed = lessons.filter((lid) => progressMap[lid]).length;
-      map[courseId] =
-        lessons.length > 0
-          ? Math.round((completed / lessons.length) * 100)
-          : 0;
-    });
-
-    return map;
-  }, [lessonCounts, progressMap]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppNavbar />
-      <main className="mx-auto max-w-7xl px-4 py-8">
-        <h1 className="mb-6 text-2xl font-bold text-foreground">
-          Your Courses
-        </h1>
+    <div className="min-h-screen bg-[#060010] relative overflow-hidden">
+      {/* Fondo Aurora intacto */}
+      <Aurora 
+        colorStops={["#07b632", "#ae14f5", "#5227FF"]} 
+        blend={0.46} 
+        amplitude={1.0} 
+        speed={0.5} 
+      />
 
-        {coursesLoading ? (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-64 rounded-lg" />
-            ))}
-          </div>
-        ) : courses.length === 0 ? (
-          <div className="flex flex-col items-center py-20 text-muted-foreground">
-            <BookOpen className="mb-3 h-12 w-12" />
-            <p>No courses available yet.</p>
-          </div>
-        ) : (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {courses.map((course) => {
-              const progress = progressByCourse[course.id] ?? 0;
+      {/* Envolvemos el contenido en MagicBento para activar el brillo con el mouse */}
+      <MagicBento glowColor="132, 0, 255" spotlightRadius={400}>
+        <div className="relative z-10 min-h-screen">
+          <AppNavbar />
 
-              return (
-                <Link
-                  key={course.id}
-                  to={`/course/${course.slug}/learn`}
-                  className="group overflow-hidden rounded-lg border border-border bg-card transition-all hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5"
-                >
-                  <div className="aspect-video w-full bg-secondary">
-                    {course.thumbnail_url ? (
-                      <img
-                        src={course.thumbnail_url}
-                        alt={course.title}
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center">
-                        <BookOpen className="h-10 w-10 text-muted-foreground" />
+          <main className="mx-auto max-w-7xl px-4 py-8">
+            <h1 className="mb-2 text-3xl font-bold text-white tracking-tight">Tus cursos</h1>
+
+            {daysLeft !== null && (
+              <p className="mb-8 text-sm text-purple-300/60 uppercase tracking-widest font-medium">
+                Suscripción: {daysLeft > 0 ? `${daysLeft} días restantes` : "Expirada"}
+              </p>
+            )}
+
+            {isLoading ? (
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-64 rounded-2xl bg-white/5" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {courses.map((c) => (
+                  <Link
+                    key={c.id}
+                    to={`/course/${c.slug}/learn`}
+                    /* Clase fundamental para el brillo del borde */
+                    className="magic-bento-card magic-bento-card--border-glow group flex flex-col p-0 transition-all hover:scale-[1.02]"
+                    style={{ 
+                      backgroundColor: 'rgba(6, 0, 16, 0.7)',
+                    } as any}
+                  >
+                    {/* Placeholder de imagen */}
+                    <div className="aspect-video bg-white/5 relative overflow-hidden">
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#060010] to-transparent opacity-60" />
+                    </div>
+
+                    {/* Contenido de la Card */}
+                    <div className="p-6 relative z-10">
+                      <h3 className="font-bold text-xl text-white group-hover:text-purple-400 transition-colors">
+                        {c.title}
+                      </h3>
+                      <p className="text-sm text-gray-400 mt-2 line-clamp-2 leading-relaxed">
+                        {c.description}
+                      </p>
+                      
+                      <div className="mt-6 flex items-center text-xs font-bold text-purple-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                        Continuar aprendiendo →
                       </div>
-                    )}
-                  </div>
-
-                  <div className="p-4">
-                    <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
-                      {course.title}
-                    </h3>
-                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                      {course.description}
-                    </p>
-
-                    {progress > 0 && (
-                      <div className="mt-3">
-                        <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                          <span>Progress</span>
-                          <span>{progress}%</span>
-                        </div>
-                        <Progress value={progress} className="h-1.5" />
-                      </div>
-                    )}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </main>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </main>
+        </div>
+      </MagicBento>
     </div>
   );
 }
