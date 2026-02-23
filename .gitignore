@@ -34,3 +34,5 @@ dist-ssr
 =======
 
 >>>>>>> 29c90d1 (primer commit)
+".env" 
+".env.local" 
