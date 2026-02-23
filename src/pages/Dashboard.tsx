@@ -1,29 +1,24 @@
-import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppNavbar } from "@/components/AppNavbar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
+import { Link } from "react-router-dom";
+import { useAuthContext } from "@/components/AuthProvider"; // ✅ FIX: contexto global
 import { differenceInDays } from "date-fns";
-import Aurora from "@/components/Aurora"; // Importación de Aurora
-import MagicBento from "@/components/MagicBento"; // Tu nuevo componente TSX
-import "@/components/MagicBento.css"; // Tu nuevo CSS
+import Aurora from "@/components/Aurora";
+import MagicBento from "@/components/MagicBento";
+import "@/components/MagicBento.css";
 
 export default function Dashboard() {
-  const { profile } = useAuth();
-  const navigate = useNavigate();
+  const { profile } = useAuthContext(); // ✅ FIX
 
-  useEffect(() => {
-    if (profile?.access_expires_at) {
-      const expired = new Date(profile.access_expires_at) < new Date();
-      if (expired) navigate("/subscription-expired");
-    }
-  }, [profile, navigate]);
+  // ✅ FIX: se eliminó el useEffect de expiración — RequireAuth ya lo maneja.
+  // Tenerlo duplicado aquí causaba una navegación extra innecesaria.
 
-  const daysLeft = profile?.access_expires_at
-    ? differenceInDays(new Date(profile.access_expires_at), new Date())
-    : null;
+  const daysLeft =
+    profile?.access_expires_at
+      ? differenceInDays(new Date(profile.access_expires_at), new Date())
+      : null;
 
   const { data: courses = [], isLoading } = useQuery({
     queryKey: ["courses"],
@@ -39,28 +34,25 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-[#060010] relative overflow-hidden">
-      {/* Fondo Aurora intacto */}
-      <Aurora 
-        colorStops={["#07b632", "#ae14f5", "#5227FF"]} 
-        blend={0.46} 
-        amplitude={1.0} 
-        speed={0.5} 
+      <Aurora
+        colorStops={["#07b632", "#ae14f5", "#5227FF"]}
+        blend={0.46}
+        amplitude={1.0}
+        speed={0.5}
       />
-
-      {/* Envolvemos el contenido en MagicBento para activar el brillo con el mouse */}
       <MagicBento glowColor="132, 0, 255" spotlightRadius={400}>
         <div className="relative z-10 min-h-screen">
           <AppNavbar />
-
           <main className="mx-auto max-w-7xl px-4 py-8">
-            <h1 className="mb-2 text-3xl font-bold text-white tracking-tight">Tus cursos</h1>
-
+            <h1 className="mb-2 text-3xl font-bold text-white tracking-tight">
+              Tus cursos
+            </h1>
             {daysLeft !== null && (
               <p className="mb-8 text-sm text-purple-300/60 uppercase tracking-widest font-medium">
-                Suscripción: {daysLeft > 0 ? `${daysLeft} días restantes` : "Expirada"}
+                Suscripción:{" "}
+                {daysLeft > 0 ? `${daysLeft} días restantes` : "Expirada"}
               </p>
             )}
-
             {isLoading ? (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {[1, 2, 3].map((i) => (
@@ -73,18 +65,12 @@ export default function Dashboard() {
                   <Link
                     key={c.id}
                     to={`/course/${c.slug}/learn`}
-                    /* Clase fundamental para el brillo del borde */
                     className="magic-bento-card magic-bento-card--border-glow group flex flex-col p-0 transition-all hover:scale-[1.02]"
-                    style={{ 
-                      backgroundColor: 'rgba(6, 0, 16, 0.7)',
-                    } as any}
+                    style={{ backgroundColor: "rgba(6, 0, 16, 0.7)" } as any}
                   >
-                    {/* Placeholder de imagen */}
                     <div className="aspect-video bg-white/5 relative overflow-hidden">
                       <div className="absolute inset-0 bg-gradient-to-t from-[#060010] to-transparent opacity-60" />
                     </div>
-
-                    {/* Contenido de la Card */}
                     <div className="p-6 relative z-10">
                       <h3 className="font-bold text-xl text-white group-hover:text-purple-400 transition-colors">
                         {c.title}
@@ -92,7 +78,6 @@ export default function Dashboard() {
                       <p className="text-sm text-gray-400 mt-2 line-clamp-2 leading-relaxed">
                         {c.description}
                       </p>
-                      
                       <div className="mt-6 flex items-center text-xs font-bold text-purple-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
                         Continuar aprendiendo →
                       </div>

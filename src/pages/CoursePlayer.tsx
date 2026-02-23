@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuthContext } from "@/components/AuthProvider"; // ✅ FIX: contexto global, no hook local
 import { AppNavbar } from "@/components/AppNavbar";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,20 +14,15 @@ import DotGrid from "@/components/DotGrid";
 
 export default function CoursePlayer() {
   const { slug } = useParams<{ slug: string }>();
-  const { user, profile } = useAuth();
+  const { user, profile } = useAuthContext(); // ✅ FIX
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  
+
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
-  const autoAdvanceTimer = useRef<NodeJS.Timeout | null>(null);
+  const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<number>(0);
 
-  const [hasAccess, setHasAccess] = useState(false);
-  const [isExpired, setIsExpired] = useState(false);
-  const [alreadyRequested, setAlreadyRequested] = useState(false);
-  const [checkingAccess, setCheckingAccess] = useState(true);
-  const [sending, setSending] = useState(false);
-
+  // ── Curso ──────────────────────────────────────────────────────────────────
   const { data: course, isLoading: courseLoading } = useQuery({
     queryKey: ["course", slug],
     queryFn: async () => {
@@ -42,65 +37,58 @@ export default function CoursePlayer() {
     enabled: !!slug,
   });
 
-  useEffect(() => {
-    const checkUserAccess = async () => {
-      if (!user || !course?.id) return;
+  // ── Acceso del usuario ─────────────────────────────────────────────────────
+  // ✅ FIX: era un useEffect imperativo; ahora es una query con caché y estados claros
+  const { data: accessData, isLoading: checkingAccess } = useQuery({
+    queryKey: ["user-course-access", user?.id, course?.id],
+    enabled: !!user && !!course?.id,
+    queryFn: async () => {
       const { data: access } = await supabase
         .from("user_courses")
         .select("id, expires_at")
-        .eq("user_id", user.id)
-        .eq("course_id", course.id)
+        .eq("user_id", user!.id)
+        .eq("course_id", course!.id)
         .maybeSingle();
 
       if (access) {
-        const now = new Date();
-        const expirationDate = new Date(access.expires_at);
-        if (now > expirationDate) {
-          setIsExpired(true);
-          setHasAccess(false);
-        } else {
-          setIsExpired(false);
-          setHasAccess(true);
-        }
-        setCheckingAccess(false);
-        return;
+        const expired = new Date() > new Date(access.expires_at);
+        return { hasAccess: !expired, isExpired: expired, alreadyRequested: false };
       }
 
       const { data: req } = await supabase
         .from("course_requests")
         .select("id")
-        .eq("user_id", user.id)
-        .eq("course_id", course.id)
+        .eq("user_id", user!.id)
+        .eq("course_id", course!.id)
         .eq("status", "pending")
         .maybeSingle();
 
-      if (req) setAlreadyRequested(true);
-      setHasAccess(false);
-      setCheckingAccess(false);
-    };
+      return { hasAccess: false, isExpired: false, alreadyRequested: !!req };
+    },
+  });
 
-    if (course?.id) {
-      checkUserAccess();
-    }
-  }, [course?.id, user]);
+  const hasAccess = accessData?.hasAccess ?? false;
+  const isExpired = accessData?.isExpired ?? false;
+  const alreadyRequested = accessData?.alreadyRequested ?? false;
 
-  const requestAccess = async () => {
-    if (!user || !course?.id) return;
-    setSending(true);
-    const { error } = await supabase
-      .from("course_requests")
-      .insert({
-        user_id: user.id,
-        course_id: course.id,
-        status: "pending"
-      });
-    setSending(false);
-    if (!error) {
-      setAlreadyRequested(true);
-      setIsExpired(false);
-    }
-  };
+  // ── Solicitar acceso ───────────────────────────────────────────────────────
+  // ✅ FIX: era async suelto; ahora es una mutation con invalidación de caché
+  const requestAccess = useMutation({
+    mutationFn: async () => {
+      if (!user || !course?.id) throw new Error("Missing data");
+      const { error } = await supabase
+        .from("course_requests")
+        .insert({ user_id: user.id, course_id: course.id, status: "pending" });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user-course-access"] });
+      toast.success("Solicitud enviada — esperá la aprobación.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
+  // ── Módulos y lecciones ────────────────────────────────────────────────────
   const { data: modules } = useQuery({
     queryKey: ["modules", course?.id],
     enabled: !!course?.id && hasAccess,
@@ -112,12 +100,17 @@ export default function CoursePlayer() {
         .order("order_index")
         .order("order_index", { referencedTable: "lessons" });
       if (error) throw error;
+      // Setear primera lección si no hay ninguna activa
+      if (data?.[0]?.lessons?.[0]?.id) {
+        setActiveLessonId((prev) => prev ?? data[0].lessons[0].id);
+      }
       return data;
     },
   });
 
   const allLessons = useMemo(() => modules?.flatMap((m) => m.lessons) ?? [], [modules]);
 
+  // ── Progreso ───────────────────────────────────────────────────────────────
   const { data: progress } = useQuery({
     queryKey: ["progress", user?.id, course?.id],
     enabled: !!user && allLessons.length > 0 && hasAccess,
@@ -134,37 +127,50 @@ export default function CoursePlayer() {
     },
   });
 
-  useEffect(() => {
-    if (allLessons.length && !activeLessonId && hasAccess) {
-      setActiveLessonId(allLessons[0].id);
-    }
-  }, [allLessons, activeLessonId, hasAccess]);
-
   const activeLesson = allLessons.find((l) => l.id === activeLessonId);
   const currentIndex = allLessons.findIndex((l) => l.id === activeLessonId);
 
+  // ── Guardar progreso ───────────────────────────────────────────────────────
   const saveProgress = useMutation({
-    mutationFn: async ({ lessonId, position, completed }: { lessonId: string; position: number; completed?: boolean }) => {
-      const { error } = await supabase.from("user_progress").upsert({
-        user_id: user!.id,
-        lesson_id: lessonId,
-        last_watched_position: Math.floor(position),
-        is_completed: completed ?? false,
-      }, { onConflict: "user_id,lesson_id" });
+    mutationFn: async ({
+      lessonId,
+      position,
+      completed,
+    }: {
+      lessonId: string;
+      position: number;
+      completed?: boolean;
+    }) => {
+      const { error } = await supabase.from("user_progress").upsert(
+        {
+          user_id: user!.id,
+          lesson_id: lessonId,
+          last_watched_position: Math.floor(position),
+          is_completed: completed ?? false,
+        },
+        { onConflict: "user_id,lesson_id" }
+      );
       if (error) throw error;
     },
   });
 
-  const handleTimeUpdate = useCallback((time: number) => {
-    if (!activeLessonId || !user) return;
-    if (time - lastSavedRef.current >= 10) {
-      lastSavedRef.current = time;
-      saveProgress.mutate({ lessonId: activeLessonId, position: time });
-    }
-  }, [activeLessonId, user, saveProgress]);
+  const handleTimeUpdate = useCallback(
+    (time: number) => {
+      if (!activeLessonId || !user) return;
+      if (time - lastSavedRef.current >= 10) {
+        lastSavedRef.current = time;
+        saveProgress.mutate({ lessonId: activeLessonId, position: time });
+      }
+    },
+    [activeLessonId, user, saveProgress]
+  );
 
   const handleVideoEnded = useCallback(() => {
     if (!activeLessonId || !user) return;
+
+    // ✅ FIX: limpiar timer anterior antes de crear uno nuevo
+    if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
+
     saveProgress.mutate(
       { lessonId: activeLessonId, position: 0, completed: true },
       {
@@ -172,12 +178,15 @@ export default function CoursePlayer() {
           queryClient.invalidateQueries({ queryKey: ["progress"] });
           const next = allLessons[currentIndex + 1];
           if (next) {
-            toast("Lesson complete!", {
-              description: `Next: ${next.title} — auto-advancing in 5s`,
-              action: { label: "Go Now", onClick: () => {
-                clearTimeout(autoAdvanceTimer.current!);
-                setActiveLessonId(next.id);
-              }},
+            toast("Clase completada", {
+              description: `Siguiente: ${next.title} — avanzando en 5s`,
+              action: {
+                label: "Ir ahora",
+                onClick: () => {
+                  if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
+                  setActiveLessonId(next.id);
+                },
+              },
             });
             autoAdvanceTimer.current = setTimeout(() => setActiveLessonId(next.id), 5000);
           }
@@ -186,11 +195,14 @@ export default function CoursePlayer() {
     );
   }, [activeLessonId, user, currentIndex, allLessons, saveProgress, queryClient]);
 
+  // ── Renders ────────────────────────────────────────────────────────────────
   if (courseLoading || checkingAccess) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
         <AppNavbar />
-        <div className="mx-auto max-w-7xl p-8 w-full"><Skeleton className="aspect-video w-full rounded-xl" /></div>
+        <div className="mx-auto max-w-7xl p-8 w-full">
+          <Skeleton className="aspect-video w-full rounded-xl" />
+        </div>
       </div>
     );
   }
@@ -204,23 +216,35 @@ export default function CoursePlayer() {
           <div className="text-center space-y-6 max-w-md w-full bg-white/10 backdrop-blur-xl p-10 rounded-2xl border border-white/20 shadow-2xl">
             {isExpired ? (
               <div className="space-y-4">
-                <div className="flex justify-center"><AlertCircle className="w-16 h-16 text-red-400" /></div>
+                <div className="flex justify-center">
+                  <AlertCircle className="w-16 h-16 text-red-400" />
+                </div>
                 <h2 className="text-2xl font-bold text-white">Tu acceso ha vencido</h2>
                 <p className="text-gray-200">La fecha de tu suscripción para este curso finalizó.</p>
-                <button onClick={requestAccess} disabled={sending} className="bg-red-600 hover:bg-red-500 text-white w-full px-8 py-4 rounded-xl text-lg font-bold shadow-lg transition-all active:scale-95">
-                  {sending ? "Enviando solicitud..." : "Solicitar Renovación"}
+                <button
+                  onClick={() => requestAccess.mutate()}
+                  disabled={requestAccess.isPending}
+                  className="bg-red-600 hover:bg-red-500 text-white w-full px-8 py-4 rounded-xl text-lg font-bold shadow-lg transition-all active:scale-95"
+                >
+                  {requestAccess.isPending ? "Enviando solicitud..." : "Solicitar Renovación"}
                 </button>
               </div>
             ) : (
               <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-white">Necesitas acceso para ver este curso</h2>
+                <h2 className="text-2xl font-bold text-white">
+                  Necesitas acceso para ver este curso
+                </h2>
                 {alreadyRequested ? (
                   <div className="bg-green-500/20 text-green-300 p-5 rounded-xl font-bold border border-green-500/30">
                     ✅ Solicitud enviada — espera la aprobación.
                   </div>
                 ) : (
-                  <button onClick={requestAccess} disabled={sending} className="bg-yellow-500 hover:bg-yellow-400 text-black w-full px-8 py-4 rounded-xl text-lg font-bold shadow-lg transition-all active:scale-95">
-                    {sending ? "Enviando solicitud..." : "Solicitar acceso"}
+                  <button
+                    onClick={() => requestAccess.mutate()}
+                    disabled={requestAccess.isPending}
+                    className="bg-yellow-500 hover:bg-yellow-400 text-black w-full px-8 py-4 rounded-xl text-lg font-bold shadow-lg transition-all active:scale-95"
+                  >
+                    {requestAccess.isPending ? "Enviando solicitud..." : "Solicitar acceso"}
                   </button>
                 )}
               </div>
@@ -234,16 +258,19 @@ export default function CoursePlayer() {
   return (
     <div className="min-h-screen bg-[#0d0d12] relative flex flex-col overflow-hidden">
       <DotGrid dotSize={3} gap={18} baseColor="#23232b" activeColor="#7c3aed" proximity={130} shockRadius={220} />
-      
       <div className="relative z-10 flex flex-col flex-1">
         <AppNavbar />
         <div className="mx-auto max-w-7xl px-4 py-6 w-full">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard")} className="mb-4 text-white hover:bg-white/20 hover:text-white">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate("/dashboard")}
+            className="mb-4 text-white hover:bg-white/20 hover:text-white"
+          >
             <ChevronLeft className="mr-1 h-4 w-4" /> Volver al Dashboard
           </Button>
-
           <div className="flex flex-col gap-6 lg:flex-row">
-            {/* ÁREA DEL VIDEO */}
+            {/* VIDEO */}
             <div className="flex-1 lg:w-[68%]">
               {activeLesson?.video_url_hls ? (
                 <div className="rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] border border-white/20 bg-black">
@@ -260,19 +287,17 @@ export default function CoursePlayer() {
                   <p className="text-white/40 italic">Video no disponible por el momento</p>
                 </div>
               )}
-              
-              {/* TÍTULO DE LA CLASE */}
               <div className="mt-6 p-7 border border-white/20 rounded-2xl bg-white/10 backdrop-blur-md shadow-2xl">
-                <h2 className="text-3xl font-black text-white tracking-tight leading-none">{activeLesson?.title}</h2>
+                <h2 className="text-3xl font-black text-white tracking-tight leading-none">
+                  {activeLesson?.title}
+                </h2>
               </div>
             </div>
-
-            {/* LISTA DE LECCIONES */}
+            {/* LISTA */}
             <aside className="w-full rounded-2xl border border-white/20 bg-white/10 backdrop-blur-xl p-5 lg:w-[32%] shadow-2xl flex flex-col">
               <h3 className="font-black text-white mb-5 border-b border-white/20 pb-3 text-xl uppercase tracking-tighter italic">
                 {course?.title}
               </h3>
-              
               <div className="space-y-2 overflow-y-auto max-h-[65vh] pr-2 custom-scrollbar">
                 {modules?.map((m) => (
                   <div key={m.id} className="mb-6">
@@ -281,20 +306,22 @@ export default function CoursePlayer() {
                     </p>
                     <div className="space-y-1">
                       {m.lessons.map((l: any) => (
-                        <button 
-                          key={l.id} 
+                        <button
+                          key={l.id}
                           onClick={() => setActiveLessonId(l.id)}
                           className={cn(
                             "w-full text-left p-4 rounded-xl transition-all flex items-center gap-4 text-sm group",
-                            activeLessonId === l.id 
-                              ? "bg-purple-600/40 text-white border border-purple-400/50 shadow-lg" 
+                            activeLessonId === l.id
+                              ? "bg-purple-600/40 text-white border border-purple-400/50 shadow-lg"
                               : "hover:bg-white/10 text-gray-200 hover:text-white border border-transparent"
                           )}
                         >
-                          <PlayCircle className={cn(
-                            "w-5 h-5 shrink-0 transition-transform group-hover:scale-110", 
-                            activeLessonId === l.id ? "text-purple-300" : "text-gray-400"
-                          )} />
+                          <PlayCircle
+                            className={cn(
+                              "w-5 h-5 shrink-0 transition-transform group-hover:scale-110",
+                              activeLessonId === l.id ? "text-purple-300" : "text-gray-400"
+                            )}
+                          />
                           <span className="truncate font-medium">{l.title}</span>
                         </button>
                       ))}

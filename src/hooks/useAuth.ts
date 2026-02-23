@@ -14,10 +14,17 @@ export interface AuthState {
   loading: boolean;
 }
 
-// 🔥 Cache REAL persistente entre renders
+// Caché de módulo: persiste entre renders del mismo tab.
+// Se limpia en signOut para evitar que datos de un usuario
+// contaminen la sesión del siguiente.
 let profileCache: Record<string, AuthState["profile"]> = {};
 let roleCache: Record<string, boolean> = {};
 let inFlight: Record<string, Promise<{ profile: AuthState["profile"]; isAdmin: boolean }>> = {};
+
+// ✅ TTL del caché: 5 minutos. Si el rol o perfil cambia en DB,
+// se refleja en la próxima sesión o al vencer el TTL.
+const CACHE_TTL_MS = 1000 * 60 * 5;
+let cacheTimestamps: Record<string, number> = {};
 
 export function useAuth() {
   const [state, setState] = useState<AuthState>({
@@ -31,13 +38,18 @@ export function useAuth() {
   const mountedRef = useRef(true);
 
   const fetchProfile = useCallback(async (userId: string) => {
-    // 🔥 Evita múltiples requests simultáneos
+    // Deduplicar requests simultáneos
     if (inFlight[userId]) return inFlight[userId];
 
-    // 🔥 Cache por usuario
-    if (profileCache[userId] !== undefined) {
+    // ✅ FIX: respetar TTL — antes el caché era eterno.
+    // Si el rol cambiaba en DB, el usuario nunca lo veía sin recargar.
+    const cached = profileCache[userId];
+    const cachedAt = cacheTimestamps[userId] ?? 0;
+    const isFresh = Date.now() - cachedAt < CACHE_TTL_MS;
+
+    if (cached !== undefined && isFresh) {
       return {
-        profile: profileCache[userId],
+        profile: cached,
         isAdmin: roleCache[userId] ?? false,
       };
     }
@@ -61,10 +73,11 @@ export function useAuth() {
 
         profileCache[userId] = profile;
         roleCache[userId] = isAdmin;
+        cacheTimestamps[userId] = Date.now();
 
         return { profile, isAdmin };
       } catch (error) {
-        console.error("Error fetching profile:", error);
+        console.error("[useAuth] Error fetching profile:", error);
         return { profile: null, isAdmin: false };
       } finally {
         delete inFlight[userId];
@@ -83,40 +96,25 @@ export function useAuth() {
       if (session?.user) {
         const userId = session.user.id;
 
-        setState(prev => ({
-          ...prev,
-          user: session.user,
-          session,
-          loading: true,
-        }));
+        // Marcar loading solo si el perfil no está cacheado
+        if (!profileCache[userId]) {
+          setState((prev) => ({ ...prev, user: session.user, session, loading: true }));
+        }
 
         const { profile, isAdmin } = await fetchProfile(userId);
-
         if (!mountedRef.current) return;
 
-        setState({
-          user: session.user,
-          session,
-          profile,
-          isAdmin,
-          loading: false,
-        });
+        setState({ user: session.user, session, profile, isAdmin, loading: false });
       } else {
-        setState({
-          user: null,
-          session: null,
-          profile: null,
-          isAdmin: false,
-          loading: false,
-        });
+        setState({ user: null, session: null, profile: null, isAdmin: false, loading: false });
       }
     };
 
-    // 🔥 Solo se ejecuta una vez al montar
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      handleSession(session);
-    });
-
+    // ✅ FIX: antes se usaban AMBOS getSession() + onAuthStateChange.
+    // onAuthStateChange dispara INITIAL_SESSION inmediatamente al suscribirse,
+    // entonces handleSession se llamaba dos veces en cada mount causando
+    // doble fetch y doble setState.
+    // Solución: solo onAuthStateChange — cubre sesión inicial y cambios futuros.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -130,14 +128,13 @@ export function useAuth() {
   }, [fetchProfile]);
 
   const signOut = useCallback(async () => {
+    // Limpiar todo el caché al cerrar sesión
     profileCache = {};
     roleCache = {};
     inFlight = {};
+    cacheTimestamps = {};
     await supabase.auth.signOut();
   }, []);
 
   return { ...state, signOut };
 }
-
-
-
