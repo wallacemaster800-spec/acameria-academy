@@ -167,7 +167,7 @@ export default function Register() {
             <div className="relative my-8">
               <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-white/10" /></div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-[#060010] px-2 text-gray-500 tracking-widest font-bold">o continúa con</span>
+                <span className="bg-[#060010] px-2 text-gray-500 tracking-widest font-bold">o podés continuar con</span>
               </div>
             </div>
 
