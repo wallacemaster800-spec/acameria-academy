@@ -17,6 +17,7 @@ const CoursesPage = lazy(() => import("./pages/admin/CoursesPage"));
 const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
 const AdminCourseStudents = lazy(() => import("./pages/admin/AdminCourseStudents"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 
 const PageLoader = () => (
   <div className="flex h-screen items-center justify-center bg-background">
@@ -24,12 +25,11 @@ const PageLoader = () => (
   </div>
 );
 
-// queryClient fuera del componente para evitar re-creación en cada render
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5,      // 5 min: datos frescos sin refetch
-      gcTime: 1000 * 60 * 30,         // 30 min: tiempo en caché (era cacheTime, deprecado en v5)
+      staleTime: 1000 * 60 * 5,
+      gcTime: 1000 * 60 * 30,
       refetchOnWindowFocus: false,
       retry: 1,
     },
@@ -40,14 +40,8 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        {/*
-          ✅ FIX CRÍTICO: BrowserRouter debe envolver AuthProvider.
-          Si useAuth usa useNavigate/useLocation internamente, necesita
-          estar dentro del Router. Antes estaba al revés y rompía silenciosamente.
-        */}
         <BrowserRouter>
           <AuthProvider>
-            {/* ✅ FIX: Se eliminó el <Toaster> de shadcn duplicado. Solo Sonner. */}
             <Toaster richColors closeButton />
             <Suspense fallback={<PageLoader />}>
               <Routes>
@@ -56,6 +50,9 @@ export default function App() {
                 <Route path="/register" element={<Register />} />
                 <Route path="/subscription-expired" element={<SubscriptionExpired />} />
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+                {/* CALLBACK OAuth + email confirmation */}
+                <Route path="/auth/callback" element={<AuthCallback />} />
 
                 {/* PRIVATE USER */}
                 <Route
