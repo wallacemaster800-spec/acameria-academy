@@ -29,6 +29,7 @@ export function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const maxWatchedRef = useRef<number>(0);
 
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -44,10 +45,19 @@ export function VideoPlayer({
     const video = videoRef.current;
     if (!video || !src) return;
 
+    // Reseteo al cambiar de lección (src).
+    maxWatchedRef.current = initialTime;
     setHlsError(null);
 
     if (Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true });
+      const hls = new Hls({
+        enableWorker: true,
+        maxBufferLength: 60, // segundos de buffer adelante
+        maxMaxBufferLength: 120,
+        maxBufferSize: 60 * 1000 * 1000, // 60MB
+        lowLatencyMode: false,
+        backBufferLength: 30,
+      });
       hlsRef.current = hls;
 
       hls.loadSource(src);
@@ -104,10 +114,16 @@ export function VideoPlayer({
   // sale de fullscreen con Escape (antes quedaba desincronizado)
   useEffect(() => {
     const handleFsChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      setIsFullscreen(
+        !!document.fullscreenElement || !!(document as any).webkitFullscreenElement
+      );
     };
     document.addEventListener("fullscreenchange", handleFsChange);
-    return () => document.removeEventListener("fullscreenchange", handleFsChange);
+    document.addEventListener("webkitfullscreenchange", handleFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFsChange);
+      document.removeEventListener("webkitfullscreenchange", handleFsChange);
+    };
   }, []);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -127,6 +143,9 @@ export function VideoPlayer({
     const v = videoRef.current;
     if (!v) return;
     setCurrentTime(v.currentTime);
+    if (v.currentTime > maxWatchedRef.current) {
+      maxWatchedRef.current = v.currentTime;
+    }
     setDuration(v.duration || 0);
     onTimeUpdate?.(v.currentTime);
   }, [onTimeUpdate]);
@@ -134,6 +153,15 @@ export function VideoPlayer({
   const handleSeek = useCallback((val: number[]) => {
     const v = videoRef.current;
     if (v) v.currentTime = val[0];
+  }, []);
+
+  const handleSeeking = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    // Permitir seek hacia atrás siempre. Bloquear avance más allá del máximo observado (+ margen).
+    if (v.currentTime > maxWatchedRef.current + 2) {
+      v.currentTime = maxWatchedRef.current;
+    }
   }, []);
 
   const handleSpeedChange = useCallback((val: string) => {
@@ -147,13 +175,35 @@ export function VideoPlayer({
   }, []);
 
   const toggleFullscreen = useCallback(() => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen();
+    const video = videoRef.current;
+    const container = containerRef.current;
+    if (!container || !video) return;
+
+    const isIOS =
+      typeof (video as any).webkitEnterFullscreen !== "undefined" &&
+      /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    if (
+      !document.fullscreenElement &&
+      !(document as any).webkitFullscreenElement
+    ) {
+      if (isIOS) {
+        // iOS: fullscreen nativo del elemento video
+        (video as any).webkitEnterFullscreen();
+      } else {
+        container.requestFullscreen().catch(() => {});
+        // Intentar bloquear orientación landscape en Android/iOS web.
+        if (screen.orientation && (screen.orientation as any).lock) {
+          (screen.orientation as any).lock("landscape").catch(() => {});
+        }
+      }
     } else {
-      document.exitFullscreen();
+      if ((document as any).webkitExitFullscreen) {
+        ;(document as any).webkitExitFullscreen();
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
     }
-    // ✅ El estado se actualiza via el listener fullscreenchange, no aquí
   }, []);
 
   const formatTime = (s: number) => {
@@ -175,11 +225,15 @@ export function VideoPlayer({
     <div
       ref={containerRef}
       className="relative w-full overflow-hidden rounded-lg bg-black group"
+      style={{ touchAction: "manipulation" }}
     >
       <video
         ref={videoRef}
         className="w-full aspect-video"
+        playsInline={true}
+        x-webkit-airplay="allow"
         onTimeUpdate={handleTimeUpdate}
+        onSeeking={handleSeeking}
         onEnded={() => {
           setPlaying(false);
           onEnded?.();

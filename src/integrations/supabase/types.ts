@@ -91,6 +91,42 @@ export type Database = {
           },
         ]
       }
+      lesson_resources: {
+        Row: {
+          id: string
+          lesson_id: string
+          type: "pdf" | "youtube" | "snippet"
+          title: string
+          url: string | null
+          content: string | null
+          language: string | null
+          order_index: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          lesson_id: string
+          type: "pdf" | "youtube" | "snippet"
+          title: string
+          url?: string | null
+          content?: string | null
+          language?: string | null
+          order_index?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          lesson_id?: string
+          type?: "pdf" | "youtube" | "snippet"
+          title?: string
+          url?: string | null
+          content?: string | null
+          language?: string | null
+          order_index?: number
+          created_at?: string
+        }
+        Relationships: []
+      }
       modules: {
         Row: {
           course_id: string
@@ -181,6 +217,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      certificates: {
+        Row: {
+          id: string
+          user_id: string
+          course_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          course_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          course_id?: string
+          created_at?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {

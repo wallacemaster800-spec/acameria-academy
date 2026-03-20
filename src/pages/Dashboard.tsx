@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppNavbar } from "@/components/AppNavbar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuthContext } from "@/components/AuthProvider";
 import { differenceInDays } from "date-fns";
 import Aurora from "@/components/Aurora";
@@ -11,6 +11,7 @@ import "@/components/MagicBento.css";
 
 export default function Dashboard() {
   const { profile, user } = useAuthContext();
+  const navigate = useNavigate();
 
   const daysLeft =
     profile?.access_expires_at
@@ -33,6 +34,45 @@ export default function Dashboard() {
       return data;
     },
   });
+
+  const handleContinueCourse = async (course: { id: string; slug: string }) => {
+    // Guardia: si el slug está vacío, no navegar
+    if (!course.slug) return;
+
+    if (!user?.id) {
+      navigate(`/course/${course.slug}/learn`);
+      return;
+    }
+
+    try {
+      // maybeSingle() en lugar de single() — no falla si no hay filas
+      const { data } = await supabase
+        .from("user_progress")
+        .select("lesson_id, lessons(module_id, modules(course_id))")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(50); // traer varios para poder filtrar por curso
+
+      if (!data || data.length === 0) {
+        navigate(`/course/${course.slug}/learn`);
+        return;
+      }
+
+      // Filtrar solo los que pertenecen a este curso
+      const match = data.find((row: any) => {
+        const courseId = row.lessons?.modules?.course_id;
+        return courseId === course.id;
+      });
+
+      if (match?.lesson_id) {
+        navigate(`/course/${course.slug}/learn?lesson=${match.lesson_id}`);
+      } else {
+        navigate(`/course/${course.slug}/learn`);
+      }
+    } catch {
+      navigate(`/course/${course.slug}/learn`);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#060010] relative overflow-hidden">
@@ -79,11 +119,13 @@ export default function Dashboard() {
             ) : (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {courses.map((c) => (
-                  <Link
+                  <div
                     key={c.id}
-                    to={`/course/${c.slug}/learn`}
-                    className="magic-bento-card magic-bento-card--border-glow group flex flex-col p-0 transition-all hover:scale-[1.02]"
+                    className="magic-bento-card magic-bento-card--border-glow group flex flex-col p-0 transition-all hover:scale-[1.02] cursor-pointer"
                     style={{ backgroundColor: "rgba(6, 0, 16, 0.7)" } as any}
+                    onClick={() => handleContinueCourse({ id: c.id, slug: c.slug })}
+                    role="button"
+                    tabIndex={0}
                   >
                     <div className="aspect-video bg-white/5 relative overflow-hidden">
                       <div className="absolute inset-0 bg-gradient-to-t from-[#060010] to-transparent opacity-60" />
@@ -99,7 +141,7 @@ export default function Dashboard() {
                         Continuar aprendiendo →
                       </div>
                     </div>
-                  </Link>
+                  </div>
                 ))}
               </div>
             )}

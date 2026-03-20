@@ -1,24 +1,28 @@
 import { useState, useCallback, useRef, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthContext } from "@/components/AuthProvider"; // ✅ FIX: contexto global, no hook local
 import { AppNavbar } from "@/components/AppNavbar";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PlayCircle, ChevronLeft, AlertCircle } from "lucide-react";
+import { PlayCircle, ChevronLeft, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import DotGrid from "@/components/DotGrid";
+import { LessonMaterials } from "@/components/LessonMaterials";
+import { CertificateEmissionDialog } from "@/components/CertificateEmissionDialog";
 
 export default function CoursePlayer() {
   const { slug } = useParams<{ slug: string }>();
   const { user, profile } = useAuthContext(); // ✅ FIX
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
+  const [certificateDialogOpen, setCertificateDialogOpen] = useState(false);
   const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<number>(0);
 
@@ -100,10 +104,16 @@ export default function CoursePlayer() {
         .order("order_index")
         .order("order_index", { referencedTable: "lessons" });
       if (error) throw error;
-      // Setear primera lección si no hay ninguna activa
-      if (data?.[0]?.lessons?.[0]?.id) {
-        setActiveLessonId((prev) => prev ?? data[0].lessons[0].id);
-      }
+      // Seleccionar lección desde URL si viene y no hay activa.
+      const lessonFromUrl = searchParams.get("lesson");
+      setActiveLessonId((prev) => {
+        if (prev) return prev;
+        if (lessonFromUrl) {
+          const found = data.flatMap((m: any) => m.lessons).find((l: any) => l.id === lessonFromUrl);
+          if (found) return found.id;
+        }
+        return data[0]?.lessons?.[0]?.id ?? null;
+      });
       return data;
     },
   });
@@ -111,7 +121,7 @@ export default function CoursePlayer() {
   const allLessons = useMemo(() => modules?.flatMap((m) => m.lessons) ?? [], [modules]);
 
   // ── Progreso ───────────────────────────────────────────────────────────────
-  const { data: progress } = useQuery({
+  const { data: progress, isLoading: progressLoading } = useQuery({
     queryKey: ["progress", user?.id, course?.id],
     enabled: !!user && allLessons.length > 0 && hasAccess,
     queryFn: async () => {
@@ -129,6 +139,14 @@ export default function CoursePlayer() {
 
   const activeLesson = allLessons.find((l) => l.id === activeLessonId);
   const currentIndex = allLessons.findIndex((l) => l.id === activeLessonId);
+
+  const courseCompleted =
+    hasAccess &&
+    !!user &&
+    !!course?.id &&
+    allLessons.length > 0 &&
+    !progressLoading &&
+    allLessons.every((l) => progress?.[l.id]?.is_completed);
 
   // ── Guardar progreso ───────────────────────────────────────────────────────
   const saveProgress = useMutation({
@@ -292,6 +310,45 @@ export default function CoursePlayer() {
                   {activeLesson?.title}
                 </h2>
               </div>
+
+              <LessonMaterials lessonId={activeLessonId} />
+
+              {courseCompleted && (
+                <div className="mt-6 rounded-2xl border border-green-400/40 bg-gradient-to-r from-purple-900/60 to-green-900/60 p-6 backdrop-blur-md shadow-2xl">
+                  <div className="flex items-start gap-4">
+                    <div className="text-white">
+                      <div className="text-3xl leading-none">🎓</div>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-xl font-black text-white tracking-tight">
+                        ¡Completaste el curso!
+                      </h3>
+                      <p className="text-gray-200/90 mt-2">
+                        Generá tu certificado y verificá el código en segundos.
+                      </p>
+                      <div className="mt-5">
+                        <Button
+                          onClick={() => setCertificateDialogOpen(true)}
+                          className="bg-green-500 hover:bg-green-400 text-black font-bold px-8 py-4 rounded-xl text-lg shadow-lg transition-all active:scale-95"
+                        >
+                          Obtener certificado
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {course?.id && user?.id ? (
+                <CertificateEmissionDialog
+                  open={certificateDialogOpen}
+                  onOpenChange={setCertificateDialogOpen}
+                  courseId={course.id}
+                  courseTitle={course.title}
+                  userId={user.id}
+                  userEmail={profile?.email}
+                />
+              ) : null}
             </div>
             {/* LISTA */}
             <aside className="w-full rounded-2xl border border-white/20 bg-white/10 backdrop-blur-xl p-5 lg:w-[32%] shadow-2xl flex flex-col">
@@ -299,35 +356,57 @@ export default function CoursePlayer() {
                 {course?.title}
               </h3>
               <div className="space-y-2 overflow-y-auto max-h-[65vh] pr-2 custom-scrollbar">
-                {modules?.map((m) => (
-                  <div key={m.id} className="mb-6">
-                    <p className="font-black text-[11px] text-purple-300 uppercase tracking-[0.2em] mb-3 px-2">
-                      {m.title}
-                    </p>
-                    <div className="space-y-1">
-                      {m.lessons.map((l: any) => (
-                        <button
-                          key={l.id}
-                          onClick={() => setActiveLessonId(l.id)}
-                          className={cn(
-                            "w-full text-left p-4 rounded-xl transition-all flex items-center gap-4 text-sm group",
-                            activeLessonId === l.id
-                              ? "bg-purple-600/40 text-white border border-purple-400/50 shadow-lg"
-                              : "hover:bg-white/10 text-gray-200 hover:text-white border border-transparent"
-                          )}
-                        >
-                          <PlayCircle
-                            className={cn(
-                              "w-5 h-5 shrink-0 transition-transform group-hover:scale-110",
-                              activeLessonId === l.id ? "text-purple-300" : "text-gray-400"
-                            )}
-                          />
-                          <span className="truncate font-medium">{l.title}</span>
-                        </button>
-                      ))}
+                {modules?.map((m) => {
+                  const completedInModule = m.lessons.filter(
+                    (l: any) => progress?.[l.id]?.is_completed
+                  ).length;
+                  const totalInModule = m.lessons.length;
+                  const pct =
+                    totalInModule > 0 ? Math.round((completedInModule / totalInModule) * 100) : 0;
+
+                  return (
+                    <div key={m.id} className="mb-6">
+                      <p className="font-black text-[11px] text-purple-300 uppercase tracking-[0.2em] px-2">
+                        {m.title}
+                      </p>
+
+                      <div className="h-1 bg-white/10 rounded-full mb-3 overflow-hidden">
+                        <div
+                          className="h-full bg-purple-500 rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        {m.lessons.map((l: any) => {
+                          const isCompleted = progress?.[l.id]?.is_completed === true;
+                          const isActive = activeLessonId === l.id;
+                          return (
+                            <button
+                              key={l.id}
+                              onClick={() => setActiveLessonId(l.id)}
+                              className={cn(
+                                "w-full text-left p-4 rounded-xl transition-all flex items-center gap-4 text-sm group",
+                                isActive
+                                  ? "bg-purple-600/40 text-white border border-purple-400/50 shadow-lg"
+                                  : "hover:bg-white/10 text-gray-200 hover:text-white border border-transparent"
+                              )}
+                            >
+                              {isCompleted ? (
+                                <CheckCircle2 className="w-5 h-5 shrink-0 text-green-400" />
+                              ) : isActive ? (
+                                <PlayCircle className="w-5 h-5 shrink-0 text-purple-300" />
+                              ) : (
+                                <PlayCircle className="w-5 h-5 shrink-0 text-gray-400" />
+                              )}
+                              <span className="truncate font-medium">{l.title}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </aside>
           </div>

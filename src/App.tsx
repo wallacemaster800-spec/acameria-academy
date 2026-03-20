@@ -18,6 +18,8 @@ const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
 const AdminCourseStudents = lazy(() => import("./pages/admin/AdminCourseStudents"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
+const VerifyCertificate = lazy(() => import("./pages/VerifyCertificate"));
+const VerifyLanding = lazy(() => import("./pages/VerifyLanding"));
 
 const PageLoader = () => (
   <div className="flex h-screen items-center justify-center bg-background">
@@ -49,6 +51,8 @@ export default function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/subscription-expired" element={<SubscriptionExpired />} />
+                <Route path="/verificar/:code" element={<VerifyCertificate />} />
+                <Route path="/verificar" element={<VerifyLanding />} />
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
                 {/* CALLBACK OAuth + email confirmation */}

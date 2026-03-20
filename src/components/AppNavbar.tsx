@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuthContext } from "@/components/AuthProvider"; // ✅ FIX: contexto global
 import { Button } from "@/components/ui/button";
-import { GraduationCap, LayoutDashboard, LogOut, Shield } from "lucide-react";
+import { LayoutDashboard, LogOut, Shield } from "lucide-react";
 import { memo } from "react";
 
 // ✅ FIX: se reemplazó useAuth() por useAuthContext().
@@ -25,10 +25,29 @@ export const AppNavbar = memo(function AppNavbar() {
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
         <Link
           to="/dashboard"
-          className="flex items-center gap-2 text-primary font-bold text-lg"
+          className="flex items-center gap-2"
         >
-          <GraduationCap className="h-5 w-5" />
-          Acameria
+          <img
+            src="/acameria.png"
+            alt="Acameria"
+            className="h-8 w-auto object-contain"
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
+          />
+          <span
+            className="font-black text-lg tracking-tight"
+            style={{
+              background: "linear-gradient(135deg, #a855f7 0%, #c084fc 50%, #e879f9 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              textShadow: "none",
+              filter: "drop-shadow(0 0 8px rgba(168,85,247,0.5))",
+            }}
+          >
+            ACAMERIA
+          </span>
         </Link>
 
         <div className="flex items-center gap-2">
@@ -36,6 +55,10 @@ export const AppNavbar = memo(function AppNavbar() {
             <Link to="/dashboard">
               <LayoutDashboard className="mr-1.5 h-4 w-4" /> Cursos
             </Link>
+          </Button>
+
+          <Button variant="ghost" size="sm" asChild className="text-primary">
+            <Link to="/verificar">Verificar Certificado</Link>
           </Button>
 
           {isAdmin && (
